@@ -24,6 +24,7 @@ df=spark\
     .format("kafka")\
     .option("kafka.bootstrap.servers",kafka_bootstrap_servers)\
     .option("subscribe",kafka_topic)\
+    .option("startingOffsets", "earliest")\
     .load()
 # Define a UDF to encode the 'value' column to UTF-8 format
 def encode_utf8(value):
@@ -48,24 +49,22 @@ data_write_stream = df \
     .outputMode("append") \
     .foreachBatch(lambda df, batchId: df.write.parquet(parquet_output_path+ "/batch_" + str(batchId), mode="overwrite")) \
     .start()
+    
 data_write_stream.stop()
 
-data_write_stream=df\
-    .writeStream\
-    .trigger(processingTime='7 seconds')\
-    .outputMode("append")\
-    .option("truncate","False")\
-    .foreachBatch(lambda df, batchId: df.write.csv(parquet_output_path + "/batch_" + str(batchId), mode="overwrite")) \
-    .queryName("abc")\
-    .start()
-query_duration = 20  # seconds
-start_time = time.time()
-while (time.time() - start_time) < query_duration:
-    time.sleep(1)  # Sleep for 1 second to avoid excessive polling
-
-# Stop the streaming query after the desired duration
-data_write_stream.stop()
-# Define the schema for the data
+# '''data_write_stream=df\
+#     .writeStream\
+#     .trigger(processingTime='7 seconds')\
+#     .outputMode("append")\
+#     .option("truncate","False")\
+#     .foreachBatch(lambda df, batchId: df.write.csv(parquet_output_path + "/batch_" + str(batchId), mode="overwrite")) \
+#     .queryName("abc")\
+#     .start()
+# '''
+# # time.sleep(20)
+# # # Stop the streaming query after the desired duration
+# # data_write_stream.stop()
+# # # Define the schema for the data
 schema = StructType([
     StructField("id", LongType(), nullable=True),
     StructField("description", StringType(), nullable=True),
@@ -73,43 +72,72 @@ schema = StructType([
 ])
 
 # Read the data from the Parquet file sink as a static DataFrame with the specified schema
+
 static_df = spark.read.schema(schema).parquet("C:/bigData/batch_1")
 static_df.show()
-static_df.count()
-df = spark.read.parquet("C:/bigData")
-
-
-'''
-# Stop the streaming query after the initialization
-data_write_stream.stop()
-
-# Define the schema for the data
-schema = StructType([
-    StructField("id", LongType(), nullable=True),
-    StructField("description", StringType(), nullable=True),
-    StructField("eclassnumber", LongType(), nullable=True)
-])
-
-# Read the data from the Parquet file sink as a static DataFrame with the specified schema
-static_df = spark.read.schema(schema).parquet(parquet_output_path)
-
-
-# Use static_df for your AI model or further processing
-static_df.show()
-static_df.count()
-
-# Don't forget to stop the SparkSession when you're done
-spark.stop()
-#data_write_stream.awaitTermination()
-df = spark.sql("SELECT * FROM abc")
+print("---------->column number:"+str(static_df.count()))
+df=static_df.withColumn('length',length(static_df['description']))
 df.show()
-df.count()
-console_output_stream = df \
-    .writeStream \
-    .trigger(processingTime='5 seconds') \
-    .outputMode("update") \
-    .format("console") \
-    .option("truncate", "False") \
-    .start()
-time.sleep(20)
-console_output_stream.awaitTermination()'''
+df.printSchema()
+
+from pyspark.ml.feature import Tokenizer, StopWordsRemover, CountVectorizer, IDF,VectorAssembler
+
+tokenizer=Tokenizer(inputCol='description', outputCol='token_text')
+stop_remove=StopWordsRemover(inputCol='token_text',outputCol='token_stop')
+count_vec=CountVectorizer(inputCol='token_stop', outputCol='count_vec')
+idf=IDF(inputCol='count_vec',outputCol='tf-idf')
+transformed_df=VectorAssembler(inputcols=['length','tf_idf'],outputCol='features')
+
+from pyspark.ml import Pipeline
+
+df_pipe=Pipeline(stages=[tokenizer,stop_remove,count_vec,idf,transformed_df])
+
+final_df=df_pipe.fit(df).transform(df).select('eclassnumber','features')
+final_df.show()
+# '''def process_stream(rdd):
+#     squared_rdd = rdd.map(lambda x: int(x[1]) ** 2)
+#     result = squared_rdd.collect()
+#     print(result)
+
+# data_write_stream.foreachRDD(process_stream)
+
+# data_write_stream.start()
+# data_write_stream.awaitTermination()
+
+# time.sleep(20)
+# data_write_stream.count()
+
+
+# # Stop the streaming query after the initialization
+# data_write_stream.stop()
+
+# # Define the schema for the data
+# schema = StructType([
+#     StructField("id", LongType(), nullable=True),
+#     StructField("description", StringType(), nullable=True),
+#     StructField("eclassnumber", LongType(), nullable=True)
+# ])
+
+# # Read the data from the Parquet file sink as a static DataFrame with the specified schema
+# static_df = spark.read.schema(schema).parquet(parquet_output_path)
+
+
+# # Use static_df for your AI model or further processing
+# static_df.show()
+# static_df.count()
+
+# # Don't forget to stop the SparkSession when you're done
+# spark.stop()
+# #data_write_stream.awaitTermination()
+# df = spark.sql("SELECT * FROM abc")
+# df.show()
+# df.count()
+# console_output_stream = df \
+#     .writeStream \
+#     .trigger(processingTime='5 seconds') \
+#     .outputMode("update") \
+#     .format("console") \
+#     .option("truncate", "False") \
+#     .start()
+# time.sleep(20)
+# console_output_stream.awaitTermination()'''
