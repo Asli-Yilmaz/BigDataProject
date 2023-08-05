@@ -80,64 +80,64 @@ df=static_df.withColumn('length',length(static_df['description']))
 df.show()
 df.printSchema()
 
-from pyspark.ml.feature import Tokenizer, StopWordsRemover, CountVectorizer, IDF,VectorAssembler
+from pyspark.ml.feature import Tokenizer, StopWordsRemover, CountVectorizer, IDF,VectorAssembler,NGram
 
 tokenizer=Tokenizer(inputCol='description', outputCol='token_text')
 stop_remove=StopWordsRemover(inputCol='token_text',outputCol='token_stop')
-count_vec=CountVectorizer(inputCol='token_stop', outputCol='count_vec')
+ngram=NGram(n=5,inputCol='token_stop', outputCol='ngram')
+count_vec=CountVectorizer(inputCol='ngram', outputCol='count_vec')
 idf=IDF(inputCol='count_vec',outputCol='tf-idf')
-transformed_df=VectorAssembler(inputcols=['length','tf_idf'],outputCol='features')
+
+transformed_df=VectorAssembler(inputCols=['id','length','tf-idf'],outputCol='features')
 
 from pyspark.ml import Pipeline
 
-df_pipe=Pipeline(stages=[tokenizer,stop_remove,count_vec,idf,transformed_df])
+df_pipe=Pipeline(stages=[tokenizer,stop_remove,ngram,count_vec,idf,transformed_df])
 
 final_df=df_pipe.fit(df).transform(df).select('eclassnumber','features')
 final_df.show()
-# '''def process_stream(rdd):
-#     squared_rdd = rdd.map(lambda x: int(x[1]) ** 2)
-#     result = squared_rdd.collect()
-#     print(result)
 
-# data_write_stream.foreachRDD(process_stream)
+final_df.describe().show()
+train_data, test_data=final_df.randomSplit([0.7,0.3], seed=123)
+train_data.describe().show()
+test_data.describe().show()
 
-# data_write_stream.start()
-# data_write_stream.awaitTermination()
+from pyspark.ml.regression import LinearRegression
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+from pyspark.ml.evaluation import RegressionEvaluator
 
-# time.sleep(20)
-# data_write_stream.count()
+ln=LinearRegression(labelCol='eclassnumber')
+# Create a parameter grid for the estimator (optional if you want to tune hyperparameters)
+param_grid = ParamGridBuilder().addGrid(ln.regParam, [0.0, 0.1, 0.01]).build()
 
+# Create the CrossValidator with the estimator, evaluator, and parameter grid
+crossval = CrossValidator(estimator=ln,
+                          estimatorParamMaps=param_grid,
+                          evaluator=RegressionEvaluator(labelCol='eclassnumber'),
+                          numFolds=5)
 
-# # Stop the streaming query after the initialization
-# data_write_stream.stop()
+# Run cross-validation to train the model
+cv_model = crossval.fit(final_df)
 
-# # Define the schema for the data
-# schema = StructType([
-#     StructField("id", LongType(), nullable=True),
-#     StructField("description", StringType(), nullable=True),
-#     StructField("eclassnumber", LongType(), nullable=True)
-# ])
+# Get the best model from cross-validation
+best_model = cv_model.bestModel
 
-# # Read the data from the Parquet file sink as a static DataFrame with the specified schema
-# static_df = spark.read.schema(schema).parquet(parquet_output_path)
+# Evaluate the model on the test set
+test_predictions = best_model.transform(test_data)
+evaluator = RegressionEvaluator(labelCol='eclassnumber')
+test_results = evaluator.evaluate(test_predictions)
+# Evaluate the model on the test set
+evaluator = RegressionEvaluator(labelCol='eclassnumber')
+mae = evaluator.evaluate(test_predictions, {evaluator.metricName: 'mae'})
+mse = evaluator.evaluate(test_predictions, {evaluator.metricName: 'mse'})
+rmse = evaluator.evaluate(test_predictions, {evaluator.metricName: 'rmse'})
+r2 = evaluator.evaluate(test_predictions, {evaluator.metricName: 'r2'})
 
-
-# # Use static_df for your AI model or further processing
-# static_df.show()
-# static_df.count()
-
-# # Don't forget to stop the SparkSession when you're done
-# spark.stop()
-# #data_write_stream.awaitTermination()
-# df = spark.sql("SELECT * FROM abc")
-# df.show()
-# df.count()
-# console_output_stream = df \
-#     .writeStream \
-#     .trigger(processingTime='5 seconds') \
-#     .outputMode("update") \
-#     .format("console") \
-#     .option("truncate", "False") \
-#     .start()
-# time.sleep(20)
-# console_output_stream.awaitTermination()'''
+# Print the evaluation metrics
+print("MAE: ", mae)
+print("MSE: ", mse)
+print("RMSE: ", rmse)
+print("R2: ", r2)
+# Display the table with predicted values and actual eclassnumber
+result_table = test_predictions.select('eclassnumber', format_number('prediction', 2).alias('prediction'))
+result_table.show()
