@@ -60,7 +60,7 @@ schema = StructType([
     StructField("eclassnumber", IntegerType(), nullable=True),
 ])
 
-# Read the data from the Parquet file sink as a static DataFrame with the specified schema
+
 
 static_df = spark.read.schema(schema).parquet("C:/bigData/batch_1")
 static_df.show()
@@ -145,17 +145,17 @@ sparksesion = SparkSession.builder.appName("ActualVsPredicted").getOrCreate()
 
 import matplotlib.pyplot as plt
 import pandas as pd
-# Convert the result_table DataFrame to a Pandas DataFrame
+
 result_pandas = result_table.toPandas()
 
-# Sort the data based on 'eclassnumber' for plotting
+
 result_pandas = result_pandas.sort_values(by='eclassnumber')
 
-# Extract the values for plotting
+
 eclassnumbers = result_pandas['eclassnumber']
 predictions = result_pandas['prediction']
 
-# Create the line plot using Matplotlib
+
 plt.figure(figsize=(20, 10))
 plt.scatter(eclassnumbers, predictions, marker='o', color='blue', label='Predictions', alpha=0.2)
 plt.scatter(eclassnumbers, eclassnumbers, marker='s', color='red', label='Eclass Numbers', s=50)
